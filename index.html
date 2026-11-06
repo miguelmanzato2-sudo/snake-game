@@ -1,0 +1,379 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Snake Retro 2000</title>
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #151b18;
+  color: #d9f5c2;
+  font-family: monospace;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 16px;
+}
+.game {
+  width: 100%;
+  max-width: 390px;
+  text-align: center;
+  background: #26342b;
+  border: 4px solid #75856d;
+  border-radius: 18px;
+  padding: 18px 14px;
+  box-shadow: 0 0 25px #000;
+}
+h1 {
+  margin: 0 0 8px;
+  font-size: 27px;
+  letter-spacing: 3px;
+  color: #c9f59c;
+}
+.subtitle { font-size: 11px; color: #a8bd9c; }
+.stats {
+  display: flex;
+  justify-content: space-between;
+  margin: 15px 4px 8px;
+  font-size: 13px;
+}
+.screen {
+  background: #a9c58b;
+  border: 6px solid #111a14;
+  border-radius: 7px;
+  padding: 5px;
+  box-shadow: inset 0 0 12px #536d43;
+}
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: pixelated;
+  touch-action: none;
+}
+.status {
+  min-height: 25px;
+  margin: 10px 0;
+  color: #e1f8c7;
+  font-size: 13px;
+}
+button {
+  border: 2px solid #a5c48b;
+  border-radius: 8px;
+  background: #354b3b;
+  color: #e2f7ce;
+  padding: 12px 15px;
+  font-family: monospace;
+  font-weight: bold;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button:active { background: #65845a; }
+.actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin: 10px 0;
+}
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 62px);
+  grid-template-rows: repeat(2, 48px);
+  justify-content: center;
+  gap: 6px;
+  margin-top: 15px;
+}
+.pad button { font-size: 21px; padding: 5px; }
+.up { grid-column: 2; grid-row: 1; }
+.left { grid-column: 1; grid-row: 2; }
+.down { grid-column: 2; grid-row: 2; }
+.right { grid-column: 3; grid-row: 2; }
+.footer {
+  font-size: 10px;
+  color: #9eb293;
+  margin-top: 15px;
+}
+</style>
+</head>
+<body>
+<div class="game">
+  <h1>SNAKE</h1>
+  <div class="subtitle">RETRO EDITION • 2000</div>
+
+  <div class="stats">
+    <span>PONTOS: <b id="score">0</b></span>
+    <span>RECORDE: <b id="best">0</b></span>
+  </div>
+
+  <div class="screen">
+    <canvas id="game" width="320" height="320"></canvas>
+  </div>
+
+  <div class="status" id="status">Pressione INICIAR para jogar</div>
+
+  <div class="actions">
+    <button id="start">▶ INICIAR</button>
+    <button id="pause">Ⅱ PAUSAR</button>
+    <button id="restart">↻ REINICIAR</button>
+  </div>
+
+  <div class="pad">
+    <button class="up" data-dir="up">▲</button>
+    <button class="left" data-dir="left">◀</button>
+    <button class="down" data-dir="down">▼</button>
+    <button class="right" data-dir="right">▶</button>
+  </div>
+
+  <div class="footer">USE OS BOTÕES OU DESLIZE NO VISOR</div>
+</div>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+const statusEl = document.getElementById("status");
+
+const cells = 20;
+const size = 16;
+
+let snake, food, direction, nextDirection;
+let score = 0;
+let best = Number(localStorage.getItem("snakeBest") || 0);
+let running = false;
+let gameOver = false;
+let timer = null;
+let audio = null;
+
+bestEl.textContent = best;
+
+function sound(frequency = 500) {
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    if (audio.state === "suspended") audio.resume();
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    oscillator.frequency.value = frequency;
+    gain.gain.value = 0.045;
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start();
+    oscillator.stop(audio.currentTime + 0.09);
+  } catch (e) {}
+}
+
+function reset() {
+  snake = [
+    {x: 8, y: 10},
+    {x: 7, y: 10},
+    {x: 6, y: 10}
+  ];
+  direction = "right";
+  nextDirection = "right";
+  score = 0;
+  gameOver = false;
+  running = false;
+  scoreEl.textContent = score;
+  statusEl.textContent = "Pressione INICIAR para jogar";
+  placeFood();
+  draw();
+}
+
+function placeFood() {
+  do {
+    food = {
+      x: Math.floor(Math.random() * cells),
+      y: Math.floor(Math.random() * cells)
+    };
+  } while (snake.some(part => part.x === food.x && part.y === food.y));
+}
+
+function draw() {
+  ctx.fillStyle = "#a9c58b";
+  ctx.fillRect(0, 0, 320, 320);
+
+  // Grade retrô
+  ctx.strokeStyle = "rgba(40,70,30,0.10)";
+  for (let i = 0; i <= 320; i += size) {
+    ctx.beginPath();
+    ctx.moveTo(i, 0);
+    ctx.lineTo(i, 320);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(0, i);
+    ctx.lineTo(320, i);
+    ctx.stroke();
+  }
+
+  // Comida
+  ctx.fillStyle = "#31552c";
+  ctx.fillRect(food.x * size + 3, food.y * size + 3, 10, 10);
+
+  // Cobra
+  snake.forEach((part, index) => {
+    ctx.fillStyle = index === 0 ? "#203f25" : "#426b39";
+    ctx.fillRect(part.x * size + 1, part.y * size + 1, 14, 14);
+  });
+
+  // Olhos
+  const head = snake[0];
+  ctx.fillStyle = "#d9efbd";
+  if (direction === "right") {
+    ctx.fillRect(head.x * size + 10, head.y * size + 4, 2, 2);
+    ctx.fillRect(head.x * size + 10, head.y * size + 10, 2, 2);
+  } else if (direction === "left") {
+    ctx.fillRect(head.x * size + 4, head.y * size + 4, 2, 2);
+    ctx.fillRect(head.x * size + 4, head.y * size + 10, 2, 2);
+  } else if (direction === "up") {
+    ctx.fillRect(head.x * size + 4, head.y * size + 4, 2, 2);
+    ctx.fillRect(head.x * size + 10, head.y * size + 4, 2, 2);
+  } else {
+    ctx.fillRect(head.x * size + 4, head.y * size + 10, 2, 2);
+    ctx.fillRect(head.x * size + 10, head.y * size + 10, 2, 2);
+  }
+}
+
+function tick() {
+  if (!running) return;
+
+  direction = nextDirection;
+  const head = {...snake[0]};
+
+  if (direction === "right") head.x++;
+  if (direction === "left") head.x--;
+  if (direction === "up") head.y--;
+  if (direction === "down") head.y++;
+
+  const ate = head.x === food.x && head.y === food.y;
+  const body = ate ? snake : snake.slice(0, -1);
+
+  if (
+    head.x < 0 || head.x >= cells ||
+    head.y < 0 || head.y >= cells ||
+    body.some(part => part.x === head.x && part.y === head.y)
+  ) {
+    endGame();
+    return;
+  }
+
+  snake.unshift(head);
+
+  if (ate) {
+    score += 10;
+    scoreEl.textContent = score;
+    sound(750);
+    if (score > best) {
+      best = score;
+      localStorage.setItem("snakeBest", best);
+      bestEl.textContent = best;
+    }
+    placeFood();
+    clearInterval(timer);
+    timer = setInterval(tick, Math.max(75, 145 - score / 5));
+  } else {
+    snake.pop();
+  }
+
+  draw();
+}
+
+function startGame() {
+  if (gameOver) reset();
+  if (running) return;
+  running = true;
+  statusEl.textContent = "Boa sorte!";
+  sound(500);
+  clearInterval(timer);
+  timer = setInterval(tick, Math.max(75, 145 - score / 5));
+}
+
+function pauseGame() {
+  if (!running) return;
+  running = false;
+  clearInterval(timer);
+  statusEl.textContent = "JOGO PAUSADO";
+}
+
+function endGame() {
+  running = false;
+  gameOver = true;
+  clearInterval(timer);
+  statusEl.textContent = "FIM DE JOGO! Toque em REINICIAR.";
+  sound(180);
+  draw();
+}
+
+function changeDirection(dir) {
+  const opposite = {
+    up: "down",
+    down: "up",
+    left: "right",
+    right: "left"
+  };
+  if (opposite[dir] !== direction) {
+    nextDirection = dir;
+  }
+}
+
+document.querySelectorAll("[data-dir]").forEach(button => {
+  button.addEventListener("pointerdown", e => {
+    e.preventDefault();
+    changeDirection(button.dataset.dir);
+  });
+});
+
+document.getElementById("start").addEventListener("click", startGame);
+document.getElementById("pause").addEventListener("click", pauseGame);
+document.getElementById("restart").addEventListener("click", () => {
+  clearInterval(timer);
+  reset();
+  startGame();
+});
+
+document.addEventListener("keydown", e => {
+  const keys = {
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+    w: "up", s: "down", a: "left", d: "right"
+  };
+  if (keys[e.key]) {
+    e.preventDefault();
+    changeDirection(keys[e.key]);
+  }
+  if (e.key === " ") {
+    e.preventDefault();
+    running ? pauseGame() : startGame();
+  }
+});
+
+// Controle por gesto no visor
+let touchX = 0;
+let touchY = 0;
+
+canvas.addEventListener("pointerdown", e => {
+  touchX = e.clientX;
+  touchY = e.clientY;
+});
+
+canvas.addEventListener("pointerup", e => {
+  const dx = e.clientX - touchX;
+  const dy = e.clientY - touchY;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 15) return;
+
+  if (Math.abs(dx) > Math.abs(dy)) {
+    changeDirection(dx > 0 ? "right" : "left");
+  } else {
+    changeDirection(dy > 0 ? "down" : "up");
+  }
+});
+
+reset();
+</script>
+</body>
+</html>
